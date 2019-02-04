@@ -8,6 +8,8 @@
 
 ** 4 Feb 2019
 
+Computed results on monsoon using [[file:batchtools.R]]
+
 First data visualizations for a subset of models on two data sets,
 [[file:figure-batchtools-expired.R]]
 - [[http://bl.ocks.org/tdhock/raw/28bd51a08afc2f59c85883d2abfbf444/][Sugar Maple]]
