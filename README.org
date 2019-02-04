@@ -1,0 +1,18 @@
+** TODOs
+
+- Why are three jobs always pending? filed an issue with
+  hpcsupport@nau.edu
+- More data sets.
+- Output file format?
+- Other algos?
+
+** 4 Feb 2019
+
+First data visualizations for a subset of models on two data sets,
+[[file:figure-batchtools-expired.R]]
+- [[http://bl.ocks.org/tdhock/raw/28bd51a08afc2f59c85883d2abfbf444/][Sugar Maple]]
+- [[http://bl.ocks.org/tdhock/raw/8d188b04ca9aa629a3700a8055bf27dd/][Table Mountain Pine]]
+
+** 29 Jan 2019
+
+First analysis on my desktop computer, [[file:cv.R]]
