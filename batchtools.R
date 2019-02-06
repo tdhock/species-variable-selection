@@ -9,7 +9,7 @@ library(batchtools)
 ## get out of this and it would be great to work on it with you. Colin
 ## Quinn, one of Scott's Ph.D. students will also be helping out.
 
-reg.dir <- "registry"
+reg.dir <- "registry-earth-prop-zeros"
 if(FALSE){
   unlink(reg.dir, recursive=TRUE)
 }
@@ -105,7 +105,11 @@ pred.fun.list <- list(
     test.df <- data.frame(
       test.X.mat,
       check.names=FALSE)
-    list(fit=fit, pred.prob.vec=predict(fit, test.df, type="response"))
+    prop.zero <- colMeans(fit$dirs==0)
+    ## earth model is too big to store! so we just store, for each
+    ## feature, the proportion of terms which do not use it. features
+    ## with prop.zero=1 are not used to make predictions.
+    list(prop.zero=prop.zero, pred.prob.vec=predict(fit, test.df, type="response"))
   }), nearestNeighbors=makeFun({
     max.neighbors <- as.integer(min(50, nrow(train.X.mat)/2))
     fit <- nearestNeighbors::NearestNeighborsCV(
@@ -118,7 +122,9 @@ pred.fun.list <- list(
     list(fit=response.dec, pred.prob.vec=rep(major.class, nrow(test.X.mat)))
   }))
 algo.list <- list()
-for(fun.name in names(pred.fun.list)){
+funs.to.launch <- names(pred.fun.list)
+funs.to.launch <- "earth"
+for(fun.name in funs.to.launch){
   pred.fun <- pred.fun.list[[fun.name]]
   small.result <- pred.fun(instance=small.instance)
   is.prob <- with(small.result, 0 <= pred.prob.vec & pred.prob.vec <= 1)
@@ -145,7 +151,7 @@ job.table <- getJobTable(reg=reg)
 chunks <- data.table(job.table, chunk=1)
 submitJobs(chunks, reg=reg, resources=list(
   ##walltime = 24*60,#minutes
-  walltime = 24*60,#minutes
+  walltime = 24*60*2,#minutes
   memory = 4000,#megabytes per cpu
   ncpus=2,
   ntasks=1,
