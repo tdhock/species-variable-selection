@@ -10,7 +10,28 @@ Data viz with earth(weights=one) models, [[file:figure-batchtools-expired-earth.
 - [[http://bl.ocks.org/tdhock/raw/dd83af54b5efd7590da5715aa3b46f39/][Table Mountain Pine]]
 - [[http://bl.ocks.org/tdhock/raw/40ce744fe6f8200a3847d58c5d939e35/][Sugar Maple]]
 
+** 5 Feb 2019
+
+[[file:batchtools.megabytes.R]] computes results file sizes. For some
+reason earth models are way too big -- min/max results.rds file sizes
+in megabytes shown below.
+
+#+begin_src 
+          algorithm min  max
+1:            earth 877 5119
+2:           glmnet   1    1
+3: nearestNeighbors   1    1
+4:      major.class   1    1
+5:          xgboost   1    1
+#+end_src
+
+earth.fit$dir is a matrix of terms x features with zeros indicating
+that term i does not use feature j -- we can use this as a feature
+importance metric.
+
 ** 4 Feb 2019
+
+Computed results on monsoon using [[file:batchtools.R]]
 
 First data visualizations for a subset of models on two data sets,
 [[file:figure-batchtools-expired.R]]
