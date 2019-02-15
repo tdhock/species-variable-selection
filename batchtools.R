@@ -20,6 +20,7 @@ reg <- if(file.exists(reg.dir)){
 }
 
 spp.csv.vec <- normalizePath(Sys.glob("data/*"))
+## ADD NEW DATA SETS TO data/ directory.
 spp.csv <- spp.csv.vec[1]
 spp <- fread(spp.csv)
 all.X.mat <- as.matrix(spp[, 6:36])
@@ -76,6 +77,7 @@ makeFun <- function(expr){
   }
 }
 pred.fun.list <- list(
+  ## ADD NEW ML ALGOS HERE
   glmnet=makeFun({
     fit <- glmnet::cv.glmnet(
       train.X.mat, factor(train.y.vec), family="binomial")
