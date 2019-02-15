@@ -81,7 +81,11 @@ pred.fun.list <- list(
   glmnet=makeFun({
     fit <- glmnet::cv.glmnet(
       train.X.mat, factor(train.y.vec), family="binomial")
-    list(fit=fit, pred.prob.vec=predict(fit, test.X.mat, type="response"))
+    pred.prob.vec <- predict(fit, test.X.mat, type="response")
+    for(thresh in seq(0, 1, by=100)){
+      ##compute whatever metric you want to optimize
+      }
+    list(fit=fit, pred.prob.vec=prob.prob.vec, best.thresh)
   }), xgboost=makeFun({
     xg.param <- list(
       objective="binary:logistic",
