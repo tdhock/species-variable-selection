@@ -9,7 +9,7 @@ library(batchtools)
 ## get out of this and it would be great to work on it with you. Colin
 ## Quinn, one of Scott's Ph.D. students will also be helping out.
 
-reg.dir <- "registry-earth-prop-zeros"
+reg.dir <- "registry-earth-prop-zeros-new"
 if(FALSE){
   unlink(reg.dir, recursive=TRUE)
 }
@@ -19,7 +19,7 @@ reg <- if(file.exists(reg.dir)){
   makeExperimentRegistry(reg.dir)
 }
 
-spp.csv.vec <- normalizePath(Sys.glob("data/*"))
+(spp.csv.vec <- normalizePath(Sys.glob("data/*")))
 spp.csv <- spp.csv.vec[1]
 spp <- fread(spp.csv)
 all.X.mat <- as.matrix(spp[, 6:36])
