@@ -1,10 +1,14 @@
 ** TODOs
 
-- Why are three jobs always pending? filed an issue with
-  hpcsupport@nau.edu
-- More data sets.
+- More data sets?
 - Output file format?
 - Other algos?
+
+** 8 Feb 2019
+
+Data viz with earth(weights=one) models, [[file:figure-batchtools-expired-earth.R]]
+- [[http://bl.ocks.org/tdhock/raw/dd83af54b5efd7590da5715aa3b46f39/][Table Mountain Pine]]
+- [[http://bl.ocks.org/tdhock/raw/40ce744fe6f8200a3847d58c5d939e35/][Sugar Maple]]
 
 ** 5 Feb 2019
 

@@ -20,6 +20,7 @@ reg <- if(file.exists(reg.dir)){
 }
 
 (spp.csv.vec <- normalizePath(Sys.glob("data/*")))
+## ADD NEW DATA SETS TO data/ directory.
 spp.csv <- spp.csv.vec[1]
 spp <- fread(spp.csv)
 all.X.mat <- as.matrix(spp[, 6:36])
@@ -76,10 +77,15 @@ makeFun <- function(expr){
   }
 }
 pred.fun.list <- list(
+  ## ADD NEW ML ALGOS HERE
   glmnet=makeFun({
     fit <- glmnet::cv.glmnet(
       train.X.mat, factor(train.y.vec), family="binomial")
-    list(fit=fit, pred.prob.vec=predict(fit, test.X.mat, type="response"))
+    pred.prob.vec <- predict(fit, test.X.mat, type="response")
+    for(thresh in seq(0, 1, by=100)){
+      ##compute whatever metric you want to optimize
+      }
+    list(fit=fit, pred.prob.vec=prob.prob.vec, best.thresh)
   }), xgboost=makeFun({
     xg.param <- list(
       objective="binary:logistic",
