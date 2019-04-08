@@ -134,6 +134,7 @@ for(test.set.i in 1:nrow(xgboost1)){
       algo.meta,
       FPR=sum(pred.class.vec==1 & test.y.vec==0)/sum(test.y.vec==0),
       TPR=sum(pred.class.vec==1 & test.y.vec==1)/sum(test.y.vec==1),
+      ## ADD EVAL METRIC HERE.
       accuracy.percent=mean(pred.class.vec==test.y.vec)*100,
       auc=WeightedAUC(roc.df))
   }

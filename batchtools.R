@@ -9,9 +9,17 @@ library(batchtools)
 ## get out of this and it would be great to work on it with you. Colin
 ## Quinn, one of Scott's Ph.D. students will also be helping out.
 
-reg.dir <- "registry-earth-prop-zeros"
-if(FALSE){
+## Define registry and number of folds.
+n.folds <- 10
+reg.dir <- "registry-earth-prop-zeros-vanilla"
+if(FALSE){# run this to delete registry if you want to restart from scratch.
   unlink(reg.dir, recursive=TRUE)
+}
+
+## Before creating your registry make sure to define cluster functions 
+if(FALSE){#put this in your ~/.batchtools.conf.R:
+  ##TODO maybe change to your local copy of this template (especially if you want to execute a custom sbatch script)
+  cluster.functions = makeClusterFunctionsSlurm("~th798/R/PeakSegPipeline/inst/templates/slurm-afterok.tmpl")
 }
 reg <- if(file.exists(reg.dir)){
   loadRegistry(reg.dir)
@@ -19,7 +27,10 @@ reg <- if(file.exists(reg.dir)){
   makeExperimentRegistry(reg.dir)
 }
 
-spp.csv.vec <- normalizePath(Sys.glob("data/*"))
+## Define data sets/files here. ADD NEW DATA SETS TO data/ directory.
+(spp.csv.vec <- normalizePath(Sys.glob("data/*")))
+
+## Some code that initializes all the variables in that next function, for interactive testing.
 spp.csv <- spp.csv.vec[1]
 spp <- fread(spp.csv)
 all.X.mat <- as.matrix(spp[, 6:36])
@@ -31,7 +42,6 @@ small.instance <- list(
     train.weight.vec=rep(1, length(some.i)),
     test.X.mat=all.X.mat[1:2,],
     is.train="foo")
-n.folds <- 10
 
 addProblem("cv", reg=reg, fun=function(job, data, spp.csv, test.fold, n.folds, weight.name, ...){
   species.id <- namedCapture::str_match_variable(
@@ -76,10 +86,19 @@ makeFun <- function(expr){
   }
 }
 pred.fun.list <- list(
+  ## ADD NEW ML ALGOS HERE
   glmnet=makeFun({
     fit <- glmnet::cv.glmnet(
       train.X.mat, factor(train.y.vec), family="binomial")
-    list(fit=fit, pred.prob.vec=predict(fit, test.X.mat, type="response"))
+    pred.prob.vec <- predict(fit, test.X.mat, type="response")
+    best.thresh <- if(FALSE){
+      ## TODO learn best threshold using the training data, for
+      ## non-standard evaluation metric.
+      for(thresh in seq(0, 1, by=100)){
+        ##compute whatever metric you want to optimize
+      }
+    }
+    list(fit=fit, pred.prob.vec=pred.prob.vec, best.thresh=best.thresh)
   }), xgboost=makeFun({
     xg.param <- list(
       objective="binary:logistic",
@@ -93,24 +112,28 @@ pred.fun.list <- list(
       data=xg.mat,
       nrounds=50)
     list(fit=fit, pred.prob.vec=predict(fit, test.X.mat), is.train=is.train)
-  }), earth=makeFun({
-    train.df <- data.frame(
-      label=factor(train.y.vec),
-      train.X.mat,
-      check.names=FALSE)
-    fit <- earth::earth(
-      label ~ ., data=train.df, weights=train.weight.vec,
-      trace=3, #print progress.
-      pmethod="cv", nfold=5, glm=list(family=binomial), degree=2)
-    test.df <- data.frame(
-      test.X.mat,
-      check.names=FALSE)
-    prop.zero <- colMeans(fit$dirs==0)
-    ## earth model is too big to store! so we just store, for each
-    ## feature, the proportion of terms which do not use it. features
-    ## with prop.zero=1 are not used to make predictions.
-    list(prop.zero=prop.zero, pred.prob.vec=predict(fit, test.df, type="response"))
-  }), nearestNeighbors=makeFun({
+  }),
+  ## earth=makeFun({
+  ##   train.df <- data.frame(
+  ##     label=factor(train.y.vec),
+  ##     train.X.mat,
+  ##     check.names=FALSE)
+  ##   fit <- earth::earth(
+  ##     label ~ ., data=train.df, weights=train.weight.vec,
+  ##     trace=3, #print progress.
+  ##     pmethod="cv", nfold=5,
+  ##     ##glm=list(family=binomial), #author told us to not use binomial model, but then we get predictions outside of [0,1] .. what to do?
+  ##     degree=2)
+  ##   test.df <- data.frame(
+  ##     test.X.mat,
+  ##     check.names=FALSE)
+  ##   prop.zero <- colMeans(fit$dirs==0)
+  ##   ## earth model is too big to store! so we just store, for each
+  ##   ## feature, the proportion of terms which do not use it. features
+  ##   ## with prop.zero=1 are not used to make predictions.
+  ##   list(prop.zero=prop.zero, pred.prob.vec=predict(fit, test.df, type="response"))
+  ## }),
+  nearestNeighbors=makeFun({
     max.neighbors <- as.integer(min(50, nrow(train.X.mat)/2))
     fit <- nearestNeighbors::NearestNeighborsCV(
       train.X.mat, train.y.vec, max.neighbors, weight.vec=train.weight.vec)
@@ -121,9 +144,13 @@ pred.fun.list <- list(
     major.class <- as.integer(names(response.dec)[1])
     list(fit=response.dec, pred.prob.vec=rep(major.class, nrow(test.X.mat)))
   }))
+
+## Interactively run each algorthm on small.instance to make sure it
+## works here before calling addAlgorithm to indicate that it should
+## be used with batchtools.
 algo.list <- list()
 funs.to.launch <- names(pred.fun.list)
-funs.to.launch <- "earth"
+##funs.to.launch <- "earth"
 for(fun.name in funs.to.launch){
   pred.fun <- pred.fun.list[[fun.name]]
   small.result <- pred.fun(instance=small.instance)
@@ -135,6 +162,7 @@ for(fun.name in funs.to.launch){
   algo.list[[fun.name]] <- data.table()
 }
 
+## bind values to arguments of "cv" function... 40 jobs per algo because spp.csv [2] * weight.name [2] * test.fold [10]
 addExperiments(
   list(cv=CJ(
     spp.csv=spp.csv.vec,
@@ -147,15 +175,20 @@ addExperiments(
 summarizeExperiments(reg=reg)
 unwrap(getJobPars(reg=reg))
 
-job.table <- getJobTable(reg=reg)
+## in batchtools we can do array jobs if we assign the same chunk
+## number to a bunch of different rows/jobs in the job table. Below we
+## assign each job the chunk=1 so that there will be one call to
+## sbatch and all of the rows become tasks of that one job.
+(job.table <- getJobTable(reg=reg))
 chunks <- data.table(job.table, chunk=1)
+
 submitJobs(chunks, reg=reg, resources=list(
   ##walltime = 24*60,#minutes
   walltime = 24*60*2,#minutes
   memory = 4000,#megabytes per cpu
   ncpus=2,
   ntasks=1,
-  chunks.as.arrayjobs=TRUE))
+  chunks.as.arrayjobs=TRUE))#means to use job arrays instead of separate jobs, for every chunk.
 
 while(1){
   print(getStatus())
