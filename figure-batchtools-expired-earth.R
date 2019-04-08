@@ -1,3 +1,11 @@
+works_with_R(
+  "3.5.1",
+  batchtools="0.9.11",
+  WeightedROC="2018.10.1",
+  glmnet="2.0.16",
+  earth="4.7.0",
+  animint2="1.0")
+
 library(batchtools)
 library(WeightedROC)
 library(glmnet)
