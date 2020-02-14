@@ -12,7 +12,7 @@
 
 and
 
-[[http://bl.ocks.org/tdhock/raw/758830121648dc3b363f528a7273e303/][interactive data viz]] (TODO first and duration options)
+[[http://bl.ocks.org/tdhock/raw/758830121648dc3b363f528a7273e303/][interactive data viz]] (TODO first and duration options, color legend for default/selected points, plot metrics vs threshold)
 
 ** 8 Feb 2019
 
