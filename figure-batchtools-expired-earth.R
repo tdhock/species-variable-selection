@@ -54,6 +54,7 @@ works_with_R <- function(Rvers,...){
 }
 works_with_R(
   "3.5.1",
+  nc="2020.1.16",
   batchtools="0.9.11",
   WeightedROC="2018.10.1",
   data.table="1.0",
@@ -179,12 +180,17 @@ for(test.set.i in 1:nrow(xgboost1)){
     }
     roc.df <- WeightedROC(pred.prob.vec, test.y.vec)
     pred.class.vec <- ifelse(pred.prob.vec<0.5, 0, 1)
+    test.labels.negative <- sum(test.y.vec==0)
+    test.labels.positive <- sum(test.y.vec==1)
     roc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
-      algo.meta, roc.df, test.labels=length(test.y.vec))
+      algo.meta, roc.df,
+      test.labels=length(test.y.vec),
+      test.labels.negative,
+      test.labels.positive)
     auc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
       algo.meta,
-      FPR=sum(pred.class.vec==1 & test.y.vec==0)/sum(test.y.vec==0),
-      TPR=sum(pred.class.vec==1 & test.y.vec==1)/sum(test.y.vec==1),
+      FPR=sum(pred.class.vec==1 & test.y.vec==0)/test.labels.negative,
+      TPR=sum(pred.class.vec==1 & test.y.vec==1)/test.labels.positive,
       ## ADD EVAL METRIC HERE.
       accuracy.percent=mean(pred.class.vec==test.y.vec)*100,
       auc=WeightedAUC(roc.df))
@@ -358,6 +364,21 @@ for(species.name in species.name.vec){
       data=some.roc.approx)+
     coord_equal()
 
+  some.roc.approx[, FP.possible := test.labels.negative]
+  some.roc.approx[, FN.possible := test.labels.positive]
+  some.roc.approx[, FP.count := FP]
+  some.roc.approx[, FN.count := FN]
+
+  some.roc.possible <- nc::capture_melt_multiple(
+    some.roc.approx,
+    metric="F[PN]",
+    "[.]",
+    column=".*")[order(algorithm, test.fold, FPR.percent, metric)]
+  some.roc.possible[, max.possible := cumsum(possible), by=.(algorithm, test.fold, FPR.percent)]
+  some.roc.possible[, min.possible := max.possible-possible]
+  some.roc.possible[, label := ifelse(metric=="FP", "negative", "positive")]
+  some.roc.possible[, count := ifelse(metric=="FP", FP, FN)]#BUG in nc?
+
   some.roc.approx[, FPR.percent := round.FPR*100]
   some.roc.approx.tall <- melt(
     some.roc.approx,
@@ -411,6 +432,18 @@ for(species.name in species.name.vec){
   some.roc.approx.mid <- some.roc.approx.stats[, .(mid=(max(max)+min(min))/2), by=metric][some.roc.approx.stats, on="metric"]
   some.roc.approx.mid[, pos := ifelse(mean<mid, "right", "left")]
 
+  ggplot()+
+      ggtitle("Class balance errors plot")+
+      theme_bw()+
+      theme(panel.margin=grid::unit(0, "lines"))+
+      facet_grid(Algorithm ~ FPR.percent)+
+      geom_rect(aes(
+        xmin=test.fold-0.5, ymin=min.possible,
+        fill=label,
+        xmax=test.fold+0.5, ymax=max.possible),
+        color="black",
+        data=some.roc.possible[FPR.percent==0])
+
 
   algo.colors <- c(
     xgboost="blue",
@@ -424,56 +457,91 @@ for(species.name in species.name.vec){
   bottom.levs <- rev(names(algo.colors))
   some.roc.approx.mid[, Algorithm := factor(algorithm, bottom.levs)]
   some.roc.approx.tall[, Algorithm := factor(algorithm, bottom.levs)]
+  some.roc.approx.tall[, Algorithm.thresh := factor(algorithm, top.levs)]
   viz <- animint(
     title="ROC curves and error/accuracy metrics",
-    ## thresh=ggplot()+
-    ##   ggtitle("Metrics as a function of threshold")+
-    ##   scale_x_continuous(
-    ##     "Threshold = smallest predicted probability which is classified as positive",
-    ##     breaks=seq(0, 1, by=0.2),
-    ##     labels=c("0", "0.2", "0.4", "0.6", "0.8", "1"))+
-    ##   geom_vline(aes(
-    ##     xintercept=default.thresh),
-    ##     color="grey",
-    ##     data=data.table(default.thresh=0.5))+
-    ##   geom_hline(aes(
-    ##     yintercept=percent),
-    ##     color="grey",
-    ##     data=hline.dt)+
-    ##   geom_segment(aes(
-    ##     max.thresh, percent,
-    ##     color=Algorithm,
-    ##     xend=max.thresh, yend=next.percent),
-    ##     size=1,
-    ##     alpha=0.2,
-    ##     showSelected="Algorithm",
-    ##     data=some.roc.approx.tall[is.finite(next.percent)])+
-    ##   geom_segment(aes(
-    ##     min.thresh, percent,
-    ##     color=Algorithm,
-    ##     xend=max.thresh, yend=percent),
-    ##     size=1,
-    ##     alpha=0.2,
-    ##     showSelected="Algorithm",
-    ##     data=some.roc.approx.tall)+
-    ##   scale_color_manual(values=algo.colors)+
-    ##   scale_fill_manual(values=algo.colors)+
-    ##   geom_point(aes(
-    ##     ifelse(
-    ##       max.thresh==Inf, min.thresh+1, ifelse(
-    ##         min.thresh==-Inf, max.thresh-1, (min.thresh+max.thresh)/2)),
-    ##     percent,
-    ##     fill=Algorithm),
-    ##     alpha=0.5,
-    ##     size=2,
-    ##     showSelected="Algorithm",
-    ##     clickSelects=c(Algorithm="FPR.percent"),
-    ##     data=some.roc.approx.tall)+
-    ##   theme_bw()+
-    ##   theme(panel.margin=grid::unit(0, "lines"))+
-    ##   theme_animint(width=600)+
-    ##   guides(color="none", fill="none")+
-    ##   facet_grid(metric ~ algorithm),#scales="free" is buggy...
+    area=ggplot()+
+      ggtitle("Class balance errors plot")+
+      theme_bw()+
+      theme(panel.margin=grid::unit(0, "lines"))+
+      theme_animint(width=250)+
+      facet_grid(. ~ Algorithm)+
+      geom_rect(aes(
+        xmin=test.fold-0.5, ymin=min.possible,
+        fill=label,
+        color=Algorithm,
+        linetype=status,
+        xmax=test.fold+0.5, ymax=max.possible),
+        showSelected="Algorithm",
+        data=data.table(some.roc.possible[FPR.percent==0], status="correct"))+
+      scale_linetype_manual(
+        values=c(correct=0, error=1),
+        guide=guide_legend(override.aes=list(fill="grey90")))+
+      scale_fill_manual(
+        values=c(positive="grey30", negative="grey70"))+
+      scale_color_manual(values=algo.colors)+
+      guides(color="none")+
+      scale_x_continuous("Test fold", breaks=1:9)+
+      ylab("Observations in test set")+
+      geom_rect(aes(
+        xmin=test.fold-0.5,
+        ymin=ifelse(label=="negative", max.possible-count, min.possible),
+        fill=label,
+        color=Algorithm,
+        linetype=status,
+        key=paste(Algorithm, test.fold, label),
+        xmax=test.fold+0.5,
+        ymax=ifelse(label=="negative", max.possible, min.possible+count)),
+        showSelected=c(Algorithm="FPR.percent", "Algorithm"),
+        data=data.table(some.roc.possible, status="error")),
+    thresh=ggplot()+
+      ggtitle("Metrics as a function of threshold")+
+      scale_x_continuous(
+        "Threshold = smallest predicted probability which is classified as positive",
+        breaks=seq(0, 1, by=0.2),
+        labels=c("0", "0.2", "0.4", "0.6", "0.8", "1"))+
+      geom_vline(aes(
+        xintercept=default.thresh),
+        color="grey",
+        data=data.table(default.thresh=0.5))+
+      geom_hline(aes(
+        yintercept=percent),
+        color="grey",
+        data=hline.dt)+
+      geom_segment(aes(
+        max.thresh, percent,
+        color=Algorithm,
+        xend=max.thresh, yend=next.percent),
+        size=1,
+        alpha=0.2,
+        showSelected="Algorithm",
+        data=some.roc.approx.tall[is.finite(next.percent)])+
+      geom_segment(aes(
+        min.thresh, percent,
+        color=Algorithm,
+        xend=max.thresh, yend=percent),
+        size=1,
+        alpha=0.2,
+        showSelected="Algorithm",
+        data=some.roc.approx.tall)+
+      scale_color_manual(values=algo.colors)+
+      scale_fill_manual(values=algo.colors)+
+      geom_point(aes(
+        ifelse(
+          max.thresh==Inf, min.thresh+1, ifelse(
+            min.thresh==-Inf, max.thresh-1, (min.thresh+max.thresh)/2)),
+        percent,
+        fill=Algorithm),
+        alpha=0.5,
+        size=2,
+        showSelected="Algorithm",
+        clickSelects=c(Algorithm="FPR.percent"),
+        data=some.roc.approx.tall)+
+      theme_bw()+
+      theme(panel.margin=grid::unit(0, "lines"))+
+      theme_animint(width=400)+
+      guides(color="none", fill="none")+
+      facet_grid(metric ~ Algorithm.thresh),#scales="free" is buggy...
     roc=ggplot()+
       ggtitle("ROC curves, select FPR")+
       theme_bw()+
@@ -522,7 +590,7 @@ for(species.name in species.name.vec){
       guides(color="none")+
       theme_bw()+
       theme(panel.margin=grid::unit(0, "lines"))+
-      theme_animint(width=1100, height=300)+
+      theme_animint(width=1200, height=300)+
       facet_grid(metric ~ .),
     duration=list(),
     first=list(
@@ -537,7 +605,7 @@ for(species.name in species.name.vec){
     viz$selectize[[selector.name]] <- TRUE
   }
   animint2dir(viz, paste0("viz-roc-", species.dash))
-  animint2gist(viz)
+  ##animint2gist(viz)
 
 
   species.earth <- earth.dt[species==species.name]

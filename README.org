@@ -8,7 +8,11 @@
 
 - [[http://bl.ocks.org/tdhock/raw/eab2a3e0050fa972d99a61c037cf2d7d/][two panels smooth transitions]].
 
-- [[http://bl.ocks.org/tdhock/raw/c76f05789df48400a7628085470c4823/][three panels smooth transitions]].
+- [[http://bl.ocks.org/tdhock/raw/c76f05789df48400a7628085470c4823/][three panels smooth transitions]] functions of threshold.
+
+- [[http://bl.ocks.org/tdhock/raw/172d0f68a51a8de5d6f1bed7f23f5f82/][roc + class balance errors + error metric comparison]].
+
+- [[http://bl.ocks.org/tdhock/raw/a70c21c27665f14d4591c1fe9b2b730f/][All four linked plots]].
 
 ** 13 Feb 2020
 
