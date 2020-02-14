@@ -1,4 +1,3 @@
-
 ### Write down what package versions work with your R code, and
 ### attempt to download and load those packages. The first argument is
 ### the version of R that you used, e.g. "3.0.2" and then the rest of
@@ -57,8 +56,11 @@ works_with_R(
   "3.5.1",
   batchtools="0.9.11",
   WeightedROC="2018.10.1",
+  data.table="1.0",
   glmnet="2.0.16",
+  snow="0.4.3",
   earth="4.7.0",
+  RJSONIO="1.3.1.4",
   "tdhock/animint2@dbc4f15dbd6db9bc6b70c121fcd96d5f3a7adf98")
 
 ## Here are a couple of data tables. The response is column 5,
@@ -178,7 +180,7 @@ for(test.set.i in 1:nrow(xgboost1)){
     roc.df <- WeightedROC(pred.prob.vec, test.y.vec)
     pred.class.vec <- ifelse(pred.prob.vec<0.5, 0, 1)
     roc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
-      algo.meta, roc.df)
+      algo.meta, roc.df, test.labels=length(test.y.vec))
     auc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
       algo.meta,
       FPR=sum(pred.class.vec==1 & test.y.vec==0)/sum(test.y.vec==0),
@@ -240,6 +242,52 @@ for(species.name in species.name.vec){
       data=species.tall)+
     xlab("")
 
+  ##
+  options(width=100)
+  some.spec <- species.tall[weight.name=="balanced" & variable=="accuracy.percent"]
+  some.spec[, accuracy := value/100]
+  some.spec.tall <- melt(
+    some.spec,
+    measure.vars=c("accuracy", "FPR", "TPR"),
+    variable.name="metric",
+    id.vars=c("test.fold", "algorithm"))[test.fold <10]
+  some.spec.tall[, percent := value*100]
+  some.spec.stats <- some.spec.tall[, .(
+    mean=mean(percent),
+    min=min(percent),
+    max=max(percent),
+    sd=sd(percent),
+    folds=.N
+  ), by=.(metric, algorithm)]
+  some.spec.mid <- some.spec.stats[, .(mid=(max(max)+min(min))/2), by=metric][some.spec.stats, on="metric"]
+  algo.levs <- some.spec.mid[metric=="accuracy"][order(mean), algorithm]
+  some.spec.tall[, Algorithm := factor(algorithm, algo.levs)]
+  some.spec.mid[, Algorithm := factor(algorithm, algo.levs)]
+  some.spec.mid[, pos := ifelse(mean<mid, "right", "left")]
+
+  spaces <- "  "
+  gg.default <- ggplot()+
+    ggtitle("Prediction accuracy/error metrics at default threshold")+
+    geom_point(aes(
+      percent, Algorithm),
+      data=some.spec.tall)+
+    xlab("percent (mean +/- sd)")+
+    geom_text(aes(
+      ifelse(pos=="left", min, max), Algorithm,
+      ##vjust=ifelse(Algorithm==levels(Algorithm)[1], -0.5, 1.5),
+      hjust=ifelse(pos=="left", 1, 0),
+      label=sprintf("%s%.3f +/- %.3f%s", spaces, mean, sd, spaces)),
+      data=some.spec.mid)+
+    theme_bw()+
+    theme(panel.margin=grid::unit(0, "lines"))+
+    facet_grid(. ~ metric, labeller=label_both, scales="free")
+  species.dash <- gsub(" ", "-", species.name)
+  png(paste0(
+    "figure-batchtools-expired-earth-metrics-default-", species.dash, ".png"),
+    12, 2, units="in", res=100)
+  print(gg.default)
+  dev.off()
+
   species.roc <- roc.dt[species==species.name]
   approx.roc <- species.roc[, {
     with(approx(FPR, TPR, seq(0, 1, l=201)), data.table(
@@ -259,6 +307,137 @@ for(species.name in species.name.vec){
       group=paste(algorithm, weight.name)),
       data=approx.roc)+
     coord_equal()
+
+  one.fold.id <- 1
+  round.factor <- 1000
+  one.roc.fold <- species.roc[weight.name=="balanced" & test.fold==one.fold.id]
+  one.roc.fold[, round.FPR := round(FPR*round.factor)/round.factor]
+  one.roc.approx <- one.roc.fold[, .SD[1], by=.(algorithm, round.FPR)]
+  one.roc.approx[, errors := FP+FN]
+  one.roc.approx[, error.prop := errors/test.labels]
+  one.roc.approx[, accuracy.prop := 1-error.prop]
+  one.roc.dots <- species.tall[weight.name=="balanced" & test.fold==one.fold.id]
+  ggplot()+
+    theme_bw()+
+    theme(panel.margin=grid::unit(0, "lines"))+
+    geom_point(aes(
+      FPR, TPR, fill=algorithm),
+      color="black",
+      shape=21,
+      data=one.roc.dots)+
+    geom_path(aes(
+      FPR, TPR, color=algorithm, linetype=weight.name,
+      group=paste(algorithm, weight.name)),
+      data=one.roc.approx)+
+    coord_equal()
+
+
+  round.factor <- 100
+  get.some.roc <- function(dt)dt[weight.name=="balanced" & test.fold<10]
+  some.roc.folds <- get.some.roc(species.roc)
+  some.roc.folds[, round.FPR := round(FPR*round.factor)/round.factor]
+  some.roc.mid <- some.roc.folds[!round.FPR %in% c(0,1), .SD[1], by=.(algorithm, test.fold, round.FPR)]
+  some.roc.01 <- some.roc.folds[(FPR==0&TPR==0) | (FPR==1&TPR==1)]
+  some.roc.approx <- rbind(some.roc.mid, some.roc.01)[order(test.fold, algorithm, FPR)]
+  some.roc.approx[, .(count=.N), by=.(algorithm, round.FPR)][count!=max(count)]
+  some.roc.approx[, errors := FP+FN]
+  some.roc.approx[, error.prop := errors/test.labels]
+  some.roc.approx[, accuracy := 1-error.prop]
+  some.roc.dots <- get.some.roc(species.tall)
+  ggplot()+
+    theme_bw()+
+    theme(panel.margin=grid::unit(0, "lines"))+
+    geom_point(aes(
+      FPR, TPR, fill=algorithm),
+      color="black",
+      shape=21,
+      data=some.roc.dots)+
+    geom_line(aes(
+      FPR, TPR, color=algorithm,
+      group=paste(algorithm, test.fold)),
+      data=some.roc.approx)+
+    coord_equal()
+
+  some.roc.approx[, FPR.percent := round.FPR*100]
+  some.roc.approx.tall <- melt(
+    some.roc.approx,
+    measure.vars=c("accuracy", "FPR", "TPR"),
+    id.vars=c("algorithm", "test.fold", "FPR.percent"),
+    variable.name="metric")
+  some.roc.approx.tall[, percent := value*100]
+  some.roc.approx.tall[metric=="FPR", summary(FPR.percent-percent)]
+
+  some.roc.approx.stats <- some.roc.approx.tall[, .(
+    mean=mean(percent),
+    min=min(percent),
+    max=max(percent),
+    sd=sd(percent),
+    folds=.N
+  ), by=.(metric, algorithm, FPR.percent)]
+  some.roc.approx.mid <- some.roc.approx.stats[, .(mid=(max(max)+min(min))/2), by=metric][some.roc.approx.stats, on="metric"]
+  some.roc.approx.mid[, Algorithm := factor(algorithm, algo.levs)]
+  some.roc.approx.tall[, Algorithm := factor(algorithm, algo.levs)]
+  some.roc.approx[, Algorithm := factor(algorithm, algo.levs)]
+  some.roc.dots[, Algorithm := factor(algorithm, algo.levs)]
+  some.roc.approx.mid[, pos := ifelse(mean<mid, "right", "left")]
+
+
+  algo.colors <- c(
+    glmnet="red",
+    xgboost="blue",
+    major.class="black")
+  viz <- animint(
+    roc=ggplot()+
+      ggtitle("ROC curves, select FPR")+
+      theme_bw()+
+      theme(panel.margin=grid::unit(0, "lines"))+
+      scale_color_manual(values=algo.colors)+
+      scale_fill_manual(values=algo.colors)+
+      geom_line(aes(
+        FPR, TPR, color=Algorithm,
+        key=paste(Algorithm, test.fold),
+        group=paste(Algorithm, test.fold)),
+        alpha=0.2,
+        size=1,
+        data=some.roc.approx)+
+      geom_point(aes(
+        FPR, TPR, fill=Algorithm,
+        key=paste(Algorithm, test.fold)),
+        color="white",
+        shape=21,
+        data=some.roc.dots)+
+      geom_point(aes(
+        FPR, TPR,
+        ##key=paste(Algorithm, test.fold),
+        fill=Algorithm),
+        color="black",
+        clickSelects=c(Algorithm="FPR.percent"),
+        alpha=0.5,
+        size=4,
+        data=some.roc.approx)+
+      coord_equal(),
+    metrics=ggplot()+
+      ggtitle("Prediction accuracy/error metrics at default threshold")+
+      scale_color_manual(values=algo.colors)+
+      geom_point(aes(
+        percent, Algorithm, color=Algorithm,
+        key=paste(Algorithm, test.fold)),
+        showSelected=c(Algorithm="FPR.percent"),
+        data=some.roc.approx.tall)+
+      xlab("percent (mean +/- sd)")+
+      geom_text(aes(
+        ifelse(pos=="left", min-1, max+1), Algorithm,
+        key=Algorithm,
+        hjust=ifelse(pos=="left", 1, 0),
+        label=sprintf("%.3f +/- %.3f", mean, sd)),
+        showSelected=c(Algorithm="FPR.percent", "Algorithm"),
+        data=some.roc.approx.mid)+
+      theme_bw()+
+      theme(panel.margin=grid::unit(0, "lines"))+
+      theme_animint(width=1000)+
+      facet_grid(metric ~ ., labeller=label_both))
+  animint2gist(viz)
+
 
   species.earth <- earth.dt[species==species.name]
   rank.earth <- species.earth[, list(
@@ -470,6 +649,6 @@ for(species.name in species.name.vec){
         data=feature.ranks.folds)
   }
   ##animint2gist(viz)
-  animint2dir(viz, paste0("viz-", gsub(" ", "-", species.name)))
+  animint2dir(viz, paste0("viz-", species.dash))
 
 }
