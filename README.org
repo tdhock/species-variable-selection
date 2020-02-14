@@ -4,6 +4,12 @@
 - Output file format?
 - Other algos?
 
+** 14 Feb 2020
+
+- [[http://bl.ocks.org/tdhock/raw/eab2a3e0050fa972d99a61c037cf2d7d/][two panels smooth transitions]].
+
+- [[http://bl.ocks.org/tdhock/raw/c76f05789df48400a7628085470c4823/][three panels smooth transitions]].
+
 ** 13 Feb 2020
 
 [[file:figure-batchtools-expired-earth.R]] makes

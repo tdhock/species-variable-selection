@@ -309,7 +309,7 @@ for(species.name in species.name.vec){
     coord_equal()
 
   one.fold.id <- 1
-  round.factor <- 1000
+  round.factor <- 100
   one.roc.fold <- species.roc[weight.name=="balanced" & test.fold==one.fold.id]
   one.roc.fold[, round.FPR := round(FPR*round.factor)/round.factor]
   one.roc.approx <- one.roc.fold[, .SD[1], by=.(algorithm, round.FPR)]
@@ -362,10 +362,44 @@ for(species.name in species.name.vec){
   some.roc.approx.tall <- melt(
     some.roc.approx,
     measure.vars=c("accuracy", "FPR", "TPR"),
-    id.vars=c("algorithm", "test.fold", "FPR.percent"),
-    variable.name="metric")
+    id.vars=c("algorithm", "test.fold", "FPR.percent", "threshold"),
+    variable.name="metric")[order(algorithm, test.fold, metric, threshold)]
+  inv.logistic <- function(p)-log(1/p - 1)
+  some.roc.approx.tall[, real.threshold := ifelse(
+    algorithm=="major.class", threshold, ifelse(
+      threshold==Inf, Inf, inv.logistic(threshold)))]
+  thresh.trans <- function(x)x
+  thresh.trans <- function(x)1/(1+exp(-x))
+  some.roc.approx.tall[, min.thresh := thresh.trans(c(
+    -Inf, real.threshold[-.N])), by=.(algorithm, test.fold, metric)]
   some.roc.approx.tall[, percent := value*100]
+  some.roc.approx.tall[, next.percent := c(
+    percent[-1], NA), by=.(algorithm, test.fold, metric)]
+  some.roc.approx.tall[, max.thresh := thresh.trans(real.threshold)]
   some.roc.approx.tall[metric=="FPR", summary(FPR.percent-percent)]
+  hline.dt <- some.roc.approx.tall[, .(
+    percent=range(percent)
+  ), by=.(metric)]
+
+  ggplot()+
+    geom_hline(aes(
+      yintercept=percent),
+      color="grey",
+      data=hline.dt)+
+    geom_segment(aes(
+      min.thresh, percent,
+      color=algorithm,
+      xend=max.thresh, yend=percent),
+      data=some.roc.approx.tall)+
+    geom_segment(aes(
+      max.thresh, percent,
+      color=algorithm,
+      xend=max.thresh, yend=next.percent),
+      data=some.roc.approx.tall[is.finite(next.percent)])+
+    scale_color_manual(values=algo.colors)+
+    theme_bw()+
+    theme(panel.margin=grid::unit(0, "lines"))+
+    facet_grid(metric ~ algorithm)
 
   some.roc.approx.stats <- some.roc.approx.tall[, .(
     mean=mean(percent),
@@ -375,18 +409,71 @@ for(species.name in species.name.vec){
     folds=.N
   ), by=.(metric, algorithm, FPR.percent)]
   some.roc.approx.mid <- some.roc.approx.stats[, .(mid=(max(max)+min(min))/2), by=metric][some.roc.approx.stats, on="metric"]
-  some.roc.approx.mid[, Algorithm := factor(algorithm, algo.levs)]
-  some.roc.approx.tall[, Algorithm := factor(algorithm, algo.levs)]
-  some.roc.approx[, Algorithm := factor(algorithm, algo.levs)]
-  some.roc.dots[, Algorithm := factor(algorithm, algo.levs)]
   some.roc.approx.mid[, pos := ifelse(mean<mid, "right", "left")]
 
 
   algo.colors <- c(
-    glmnet="red",
     xgboost="blue",
+    glmnet="red",
     major.class="black")
+  ## for top roc plot:
+  top.levs <- names(algo.colors)
+  some.roc.approx[, Algorithm := factor(algorithm, top.levs)]
+  some.roc.dots[, Algorithm := factor(algorithm, top.levs)]
+  ## for bottom metrics plot:
+  bottom.levs <- rev(names(algo.colors))
+  some.roc.approx.mid[, Algorithm := factor(algorithm, bottom.levs)]
+  some.roc.approx.tall[, Algorithm := factor(algorithm, bottom.levs)]
   viz <- animint(
+    title="ROC curves and error/accuracy metrics",
+    ## thresh=ggplot()+
+    ##   ggtitle("Metrics as a function of threshold")+
+    ##   scale_x_continuous(
+    ##     "Threshold = smallest predicted probability which is classified as positive",
+    ##     breaks=seq(0, 1, by=0.2),
+    ##     labels=c("0", "0.2", "0.4", "0.6", "0.8", "1"))+
+    ##   geom_vline(aes(
+    ##     xintercept=default.thresh),
+    ##     color="grey",
+    ##     data=data.table(default.thresh=0.5))+
+    ##   geom_hline(aes(
+    ##     yintercept=percent),
+    ##     color="grey",
+    ##     data=hline.dt)+
+    ##   geom_segment(aes(
+    ##     max.thresh, percent,
+    ##     color=Algorithm,
+    ##     xend=max.thresh, yend=next.percent),
+    ##     size=1,
+    ##     alpha=0.2,
+    ##     showSelected="Algorithm",
+    ##     data=some.roc.approx.tall[is.finite(next.percent)])+
+    ##   geom_segment(aes(
+    ##     min.thresh, percent,
+    ##     color=Algorithm,
+    ##     xend=max.thresh, yend=percent),
+    ##     size=1,
+    ##     alpha=0.2,
+    ##     showSelected="Algorithm",
+    ##     data=some.roc.approx.tall)+
+    ##   scale_color_manual(values=algo.colors)+
+    ##   scale_fill_manual(values=algo.colors)+
+    ##   geom_point(aes(
+    ##     ifelse(
+    ##       max.thresh==Inf, min.thresh+1, ifelse(
+    ##         min.thresh==-Inf, max.thresh-1, (min.thresh+max.thresh)/2)),
+    ##     percent,
+    ##     fill=Algorithm),
+    ##     alpha=0.5,
+    ##     size=2,
+    ##     showSelected="Algorithm",
+    ##     clickSelects=c(Algorithm="FPR.percent"),
+    ##     data=some.roc.approx.tall)+
+    ##   theme_bw()+
+    ##   theme(panel.margin=grid::unit(0, "lines"))+
+    ##   theme_animint(width=600)+
+    ##   guides(color="none", fill="none")+
+    ##   facet_grid(metric ~ algorithm),#scales="free" is buggy...
     roc=ggplot()+
       ggtitle("ROC curves, select FPR")+
       theme_bw()+
@@ -408,7 +495,7 @@ for(species.name in species.name.vec){
         data=some.roc.dots)+
       geom_point(aes(
         FPR, TPR,
-        ##key=paste(Algorithm, test.fold),
+        key=paste(Algorithm, test.fold, FPR.percent),
         fill=Algorithm),
         color="black",
         clickSelects=c(Algorithm="FPR.percent"),
@@ -417,12 +504,12 @@ for(species.name in species.name.vec){
         data=some.roc.approx)+
       coord_equal(),
     metrics=ggplot()+
-      ggtitle("Prediction accuracy/error metrics at default threshold")+
+      ggtitle("Prediction accuracy/error metrics at selected threshold")+
       scale_color_manual(values=algo.colors)+
       geom_point(aes(
         percent, Algorithm, color=Algorithm,
         key=paste(Algorithm, test.fold)),
-        showSelected=c(Algorithm="FPR.percent"),
+        showSelected=c(Algorithm="FPR.percent", "Algorithm"),
         data=some.roc.approx.tall)+
       xlab("percent (mean +/- sd)")+
       geom_text(aes(
@@ -432,10 +519,24 @@ for(species.name in species.name.vec){
         label=sprintf("%.3f +/- %.3f", mean, sd)),
         showSelected=c(Algorithm="FPR.percent", "Algorithm"),
         data=some.roc.approx.mid)+
+      guides(color="none")+
       theme_bw()+
       theme(panel.margin=grid::unit(0, "lines"))+
-      theme_animint(width=1000)+
-      facet_grid(metric ~ ., labeller=label_both))
+      theme_animint(width=1100, height=300)+
+      facet_grid(metric ~ .),
+    duration=list(),
+    first=list(
+      major.class=0,
+      glmnet=4,
+      xgboost=24),
+    selectize=list())
+  ## BUG: FPR.percent for major.class has selector menu values
+  ## {0,1,...,100} but should just be {0,100}.
+  for(selector.name in unique(some.roc.approx$algorithm)){
+    viz$duration[[selector.name]] <- 1000
+    viz$selectize[[selector.name]] <- TRUE
+  }
+  animint2dir(viz, paste0("viz-roc-", species.dash))
   animint2gist(viz)
 
 
