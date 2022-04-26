@@ -4,6 +4,14 @@
 - Output file format?
 - Other algos?
 
+** 26 Apr 2022
+
+Simplified ROC figure [[file:figure-batchtools-expired-earth-roc.R]]
+- [[file:figure-batchtools-expired-earth-roc.csv]]
+- [[file:figure-batchtools-expired-earth-auc.csv]]
+
+[[file:figure-batchtools-expired-earth-roc.png]]
+
 ** 14 Feb 2020
 
 - [[http://bl.ocks.org/tdhock/raw/eab2a3e0050fa972d99a61c037cf2d7d/][two panels smooth transitions]].
