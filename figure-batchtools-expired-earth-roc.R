@@ -36,7 +36,7 @@ gg <- ggplot()+
       FP,test.labels.negative,FPR,
       FN,test.labels.positive,1-TPR,
       FP+FN,test.labels,(FP+FN)/test.labels)),
-    method=directlabels::polygon.method("right", offset.cm=2.4),
+    method=list(cex=0.75, directlabels::polygon.method("right", offset.cm=2)),
     data=auc.some.more)+
   geom_path(aes(
     FPR, TPR, group=paste(algorithm, test.fold)),
@@ -58,9 +58,10 @@ gg <- ggplot()+
   geom_label(aes(
     0.35, y, color=Algorithm, label=sprintf(
       "%s AUC=%.2f", Algorithm, auc)),
+    size=3,
     data=auc.some)+
   coord_equal()
-png("figure-batchtools-expired-earth-roc.png", width=6, height=6, units="in", res=200)
+png("figure-batchtools-expired-earth-roc.png", width=5, height=5, units="in", res=200)
 print(gg)
 dev.off()
 
