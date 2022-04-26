@@ -74,9 +74,9 @@ works_with_R(
 ## Quinn, one of Scott's Ph.D. students will also be helping out.
 
 reg.dir <- "registry-expired"
-reg <- loadRegistry(reg.dir)
-
-spp.csv.vec <- normalizePath(Sys.glob("data/*"))
+reg <- batchtools::loadRegistry(reg.dir)
+library(data.table)
+spp.csv.vec <- grep("some", normalizePath(Sys.glob("data/*")), invert=TRUE, value=TRUE)
 all.y.list <- list()
 all.X.list <- list()
 species.name.vec <- c(
@@ -200,6 +200,14 @@ auc.dt <- do.call(rbind, auc.dt.list)
 roc.dt <- do.call(rbind, roc.dt.list)
 glmnet.dt <- do.call(rbind, glmnet.dt.list)
 earth.dt <- do.call(rbind, earth.dt.list)
+saveRDS(list(
+  auc=auc.dt,
+  roc=roc.dt,
+  glmnet=glmnet.dt,
+  earth=earth.dt),
+  "figure-batchtools-expired-earth.rds")
+data.table::fwrite(auc.dt, "figure-batchtools-expired-earth-auc.csv")
+data.table::fwrite(roc.dt, "figure-batchtools-expired-earth-roc.csv")
 zero.counts <- glmnet.dt[, list(
   zeros=sum(weight==0),
   nonzeros=sum(weight!=0),
@@ -224,7 +232,9 @@ ggplot()+
   median=median(value),
   q75=quantile(value, 0.75),
   N=.N
-  ), by=list(species, algorithm, weight.name, variable)])
+), by=list(species, algorithm, weight.name, variable)])
+
+species.name <- "Sugar Maple"
 
 for(species.name in species.name.vec){
 
