@@ -1,4 +1,5 @@
-options(width=100, warn=2)
+upload <- FALSE
+options(width=100)
 ### Write down what package versions work with your R code, and
 ### attempt to download and load those packages. The first argument is
 ### the version of R that you used, e.g. "3.0.2" and then the rest of
@@ -57,7 +58,8 @@ works_with_R(
   "4.4.0",
   nc="2023.8.24",
   data.table="1.14.9",
-  "tdhock/animint2@32c5035934b3cc2490bfcd771a682e4f2c09fe65")
+  "animint/animint2@32c5035934b3cc2490bfcd771a682e4f2c09fe65")
+
 data.list <- readRDS("figure-batchtools-expired-earth.rds")
 auc.dt <- data.list[["auc"]]
 roc.dt <- data.list[["roc"]]
@@ -341,12 +343,13 @@ for(species.name in species.name.vec){
   some.roc.approx.tall[, Algorithm := factor(algorithm, bottom.levs)]
   some.roc.approx.tall[, Algorithm.thresh := factor(algorithm, top.levs)]
   viz <- animint(
-    title="ROC curves and error/accuracy metrics",
+    source="https://github.com/tdhock/species-variable-selection/blob/master/figure-batchtools-expired-earth.R",
+    title=paste(species.name, "ROC curves and error/accuracy metrics"),
     area=ggplot()+
       ggtitle("Class balance errors plot")+
       theme_bw()+
       theme(panel.margin=grid::unit(0, "lines"))+
-      theme_animint(width=250)+
+      theme_animint(width=350)+
       facet_grid(. ~ Algorithm)+
       geom_rect(aes(
         xmin=test.fold-0.5, ymin=min.possible,
@@ -379,9 +382,9 @@ for(species.name in species.name.vec){
     thresh=ggplot()+
       ggtitle("Metrics as a function of threshold")+
       scale_x_continuous(
-        "Threshold = smallest predicted probability which is classified as positive",
-        breaks=seq(0, 1, by=0.2),
-        labels=c("0", "0.2", "0.4", "0.6", "0.8", "1"))+
+        "Probability threshold",
+        breaks=seq(0, 1, by=0.5),
+        labels=c("0", "0.5", "1"))+
       geom_vline(aes(
         xintercept=default.thresh),
         color="grey",
@@ -414,14 +417,14 @@ for(species.name in species.name.vec){
             min.thresh==-Inf, max.thresh-1, (min.thresh+max.thresh)/2)),
         percent,
         fill=Algorithm),
-        alpha=0.5,
+        alpha=0.51,
         size=2,
         showSelected="Algorithm",
         clickSelects=c(Algorithm="FPR.percent"),
         data=some.roc.approx.tall)+
       theme_bw()+
-      theme(panel.margin=grid::unit(0, "lines"))+
-      theme_animint(width=400)+
+      theme(panel.margin=grid::unit(1, "lines"))+
+      theme_animint(width=350)+
       guides(color="none", fill="none")+
       facet_grid(metric ~ Algorithm.thresh),#scales="free" is buggy...
     roc=ggplot()+
@@ -452,6 +455,8 @@ for(species.name in species.name.vec){
         alpha=0.5,
         size=4,
         data=some.roc.approx)+
+      xlab("False Positive Rate")+
+      ylab("True Positive Rate")+
       coord_equal(),
     metrics=ggplot()+
       ggtitle("Prediction accuracy/error metrics at selected threshold")+
@@ -487,10 +492,10 @@ for(species.name in species.name.vec){
     viz$selectize[[selector.name]] <- TRUE
   }
   animint2dir(viz, paste0("viz-roc-", species.dash))
-  if(FALSE){
+  if(upload){
     animint2pages(viz, paste0("2020-02-13-roc-vs-error-", species.dash))
   }
-  species.earth <- earth.dt[species==species.name]
+  species.earth <- data.list[["earth"]][species==species.name]
   rank.earth <- species.earth[, list(
     folds.zero=sum(prop.zero==1),
     folds.used=sum(prop.zero!=1),
@@ -508,8 +513,15 @@ for(species.name in species.name.vec){
       1-prop.zero, Feature),
       shape=21,
       data=join.earth)
-  glmnet.species <- glmnet.dt[species==species.name]
-  zero.species <- zero.counts[species==species.name]
+  glmnet.species <- data.list[["glmnet"]][species==species.name]
+  zero.species <- glmnet.species[, list(
+    zeros=sum(weight==0),
+    nonzeros=sum(weight!=0),
+    percent.zero=mean(weight==0)*100,
+    percent.nonzero=mean(weight!=0)*100,
+    mean.norm.weight=mean(norm.weight),
+    count=.N
+  ), by=list(species, weight.name, feature)]
   ggplot()+
     theme_bw()+
     theme(panel.margin=grid::unit(0, "lines"))+
@@ -580,7 +592,7 @@ for(species.name in species.name.vec){
       showSelected="weight.name",
       data=species.tall[weight.name==wname])
   }
-  label.tab <- table(all.y.list[[species.name]])
+  label.tab <- data.list[["label.tab"]][[species.name]]
   label.dt <- data.table(
     label=names(label.tab),
     count=as.integer(label.tab),
@@ -592,17 +604,21 @@ for(species.name in species.name.vec){
     fun <- get(paste0("scale_", a, "_manual"))
     fun(
       values=algo.colors,
-      breaks=algo.breaks,
-      guide=guide_legend(order=1))
+      breaks=algo.breaks)
   }
+  n.folds <- length(unique(data.list$glmnet$test.fold))
+  variable.height <- 600
   viz <- animint(
-    title=species.name,
+    source="https://github.com/tdhock/species-variable-selection/blob/master/figure-batchtools-expired-earth.R",
+    title=paste(species.name, "accuracy and variable selection"),
     accuracy=ggplot()+
       ggtitle(paste(
         species.name))+
       theme_bw()+
-      theme(panel.margin=grid::unit(0, "lines"))+
-      theme_animint(height=300)+
+      theme(
+        legend.position="none",
+        panel.margin=grid::unit(2, "lines"))+
+      theme_animint(height=300, width=600)+
       facet_grid(species ~ variable, scales="free")+
       scale_color_manual(values=weight.colors)+
       scale_fill_manual(
@@ -612,23 +628,25 @@ for(species.name in species.name.vec){
         value, Algorithm, color=weight.name, fill=algorithm),
         shape=21,
         size=4,
+        showSelected=c("weight.name","algorithm"),
         data=species.tall)+
       xlab(""),
     roc=ggplot()+
       ggtitle(paste0(
         "ROC curves, ",
         n.folds, "-fold CV"))+
+      xlab("False Positive Rate")+
+      ylab("True Positive Rate")+
       geom_text(aes(
         FPR, TPR, hjust=hjust, label=paste0(
           count, " PRES=", label)),
         data=label.dt)+
       theme_bw()+
       theme_animint(height=300, width=300)+
-      theme(panel.margin=grid::unit(0, "lines"))+
       scale_("colour")+
       scale_("fill")+
       scale_linetype_manual(
-        values=weight.linetypes, guide=guide_legend(order=2))+
+        values=weight.linetypes)+
       geom_path(aes(
         FPR, TPR, color=algorithm, linetype=weight.name,
         group=paste(algorithm, weight.name, test.fold)),
@@ -647,7 +665,7 @@ for(species.name in species.name.vec){
         panel.border=element_rect(
           color=algo.colors[["earth"]]),
         panel.margin=grid::unit(0, "lines"))+
-      theme_animint(height=450, width=300)+
+      theme_animint(height=variable.height, width=300)+
       facet_grid(Used ~ ., scales="free", space="free")+
       xlab("Proportion of terms using feature")+
       geom_point(aes(
@@ -669,7 +687,7 @@ for(species.name in species.name.vec){
     feature.ranks.folds[, Percent.nonzero := factor(
       show.nonzero, sort(unique(show.nonzero), decreasing=TRUE))]
     feature.ranks.folds[, weight.long := paste0(
-      "glmnet variable importance, weights=", weight.name)]
+      "glmnet weights=", weight.name)]
     viz[[wname]] <- ggplot()+
       theme_bw()+
       theme(
@@ -678,7 +696,7 @@ for(species.name in species.name.vec){
         panel.border=element_rect(
           color=algo.colors[["glmnet"]]),
         panel.margin=grid::unit(0, "lines"))+
-      theme_animint(height=450, width=300)+
+      theme_animint(height=variable.height, width=300)+
       facet_grid(
         Percent.nonzero ~ weight.long,
         scales="free", space="free")+
@@ -695,7 +713,7 @@ for(species.name in species.name.vec){
         data=feature.ranks.folds)
   }
   animint2dir(viz, paste0("viz-", species.dash))
-  if(FALSE){
+  if(upload){
     animint2pages(viz, paste0("2020-02-13-variable-importance-", species.dash))
   }
 }

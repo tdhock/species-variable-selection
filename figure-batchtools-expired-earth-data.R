@@ -200,11 +200,17 @@ auc.dt <- do.call(rbind, auc.dt.list)
 roc.dt <- do.call(rbind, roc.dt.list)
 glmnet.dt <- do.call(rbind, glmnet.dt.list)
 earth.dt <- do.call(rbind, earth.dt.list)
-saveRDS(list(
+data.list <- list(
   auc=auc.dt,
   roc=roc.dt,
   glmnet=glmnet.dt,
-  earth=earth.dt),
-  "figure-batchtools-expired-earth.rds")
+  earth=earth.dt)
+data.list$label.tab <- list()
+for(spp.csv in spp.csv.vec){
+  species.name <- species.name.vec[sub(".csv", "", sub(".*_", "", spp.csv))]
+  spp <- fread(spp.csv)
+  data.list[["label.tab"]][[species.name]] <- table(spp$PRES)
+}
+saveRDS(data.list,  "figure-batchtools-expired-earth.rds")
 data.table::fwrite(auc.dt, "figure-batchtools-expired-earth-auc.csv")
 data.table::fwrite(roc.dt, "figure-batchtools-expired-earth-roc.csv")
