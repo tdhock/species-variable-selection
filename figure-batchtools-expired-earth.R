@@ -198,18 +198,28 @@ for(species.name in species.name.vec){
   ]
   some.roc.01 <- some.roc.folds[(FPR==0&TPR==0) | (FPR==1&TPR==1)]
   some.roc.approx <- rbind(some.roc.mid, some.roc.01)[
-    order(test.fold, algorithm, FPR)]
-  some.roc.approx[
-  , .(count=.N), by=.(algorithm, round.FPR)
+    order(test.fold, algorithm, FPR)
   ][
-    count!=max(count)
-  ]
-  some.roc.approx[
   , errors := FP+FN
   ][
   , error.prop := errors/test.labels
   ][
   , accuracy := 1-error.prop
+  ][
+  , FP.possible := test.labels.negative
+  ][
+  , FN.possible := test.labels.positive
+  ][
+  , FP.count := FP
+  ][
+  , FN.count := FN
+  ][
+  , FPR.percent := round.FPR*100
+  ]
+  some.roc.approx[
+  , .(count=.N), by=.(algorithm, round.FPR)
+  ][
+    count!=max(count)
   ]
   some.roc.dots <- get.some.roc(species.tall)
   ggplot()+
@@ -225,27 +235,21 @@ for(species.name in species.name.vec){
       group=paste(algorithm, test.fold)),
       data=some.roc.approx)+
     coord_equal()
-  some.roc.approx[, FP.possible := test.labels.negative]
-  some.roc.approx[, FN.possible := test.labels.positive]
-  some.roc.approx[, FP.count := FP]
-  some.roc.approx[, FN.count := FN]
   some.roc.possible <- nc::capture_melt_multiple(
     some.roc.approx,
     metric="F[PN]",
     "[.]",
     column=".*"
   )[
-    order(algorithm, test.fold, FPR.percent, metric)
+    order(algorithm, test.fold, round.FPR, metric)
   ][
-  , max.possible := cumsum(possible), by=.(algorithm, test.fold, FPR.percent)
+  , max.possible := cumsum(possible), by=.(algorithm, test.fold, round.FPR)
   ][
   , min.possible := max.possible-possible
   ][
   , label := ifelse(metric=="FP", "negative", "positive")
   ][
   , count := ifelse(metric=="FP", FP, FN)#BUG in nc?
-  ][
-  , FPR.percent := round.FPR*100
   ]
   inv.logistic <- function(p)-log(1/p - 1)
   thresh.trans <- function(x)x
@@ -260,7 +264,7 @@ for(species.name in species.name.vec){
   ][
   , real.threshold := ifelse(
     algorithm=="major.class", threshold, ifelse(
-      threshold==Inf, Inf, inv.logistic(threshold)))
+      threshold==Inf, Inf, suppressWarnings(inv.logistic(threshold))))
   ][
   , min.thresh := thresh.trans(c(
     -Inf, real.threshold[-.N])), by=.(algorithm, test.fold, metric)
@@ -271,12 +275,17 @@ for(species.name in species.name.vec){
     percent[-1], NA), by=.(algorithm, test.fold, metric)
   ][
   , max.thresh := thresh.trans(real.threshold)
-  ][
+  ]
+  some.roc.approx.tall[
     metric=="FPR", summary(FPR.percent-percent)
   ]
   hline.dt <- some.roc.approx.tall[, .(
     percent=range(percent)
   ), by=.(metric)]
+  algo.colors <- c(
+    xgboost="blue",
+    glmnet="red",
+    major.class="black")
   ggplot()+
     geom_hline(aes(
       yintercept=percent),
@@ -311,22 +320,19 @@ for(species.name in species.name.vec){
   , pos := ifelse(mean<mid, "right", "left")
   ]
   ggplot()+
-      ggtitle("Class balance errors plot")+
-      theme_bw()+
-      theme(panel.margin=grid::unit(0, "lines"))+
-      facet_grid(Algorithm ~ FPR.percent)+
-      geom_rect(aes(
-        xmin=test.fold-0.5, ymin=min.possible,
-        fill=label,
-        xmax=test.fold+0.5, ymax=max.possible),
-        color="black",
-        data=some.roc.possible[FPR.percent==0])
-  algo.colors <- c(
-    xgboost="blue",
-    glmnet="red",
-    major.class="black")
+    ggtitle("Class balance errors plot")+
+    theme_bw()+
+    theme(panel.margin=grid::unit(0, "lines"))+
+    facet_grid(Algorithm ~ FPR.percent)+
+    geom_rect(aes(
+      xmin=test.fold-0.5, ymin=min.possible,
+      fill=label,
+      xmax=test.fold+0.5, ymax=max.possible),
+      color="black",
+      data=some.roc.possible[FPR.percent==0])
   ## for top roc plot:
   top.levs <- names(algo.colors)
+  some.roc.possible[, Algorithm := factor(algorithm, top.levs)]
   some.roc.approx[, Algorithm := factor(algorithm, top.levs)]
   some.roc.dots[, Algorithm := factor(algorithm, top.levs)]
   ## for bottom metrics plot:
