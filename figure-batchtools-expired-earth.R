@@ -1,3 +1,4 @@
+options(width=100, warn=2)
 ### Write down what package versions work with your R code, and
 ### attempt to download and load those packages. The first argument is
 ### the version of R that you used, e.g. "3.0.2" and then the rest of
@@ -53,171 +54,14 @@ works_with_R <- function(Rvers,...){
   }
 }
 works_with_R(
-  "3.5.1",
-  nc="2020.1.16",
-  batchtools="0.9.11",
-  WeightedROC="2018.10.1",
-  data.table="1.0",
-  glmnet="2.0.16",
-  snow="0.4.3",
-  earth="4.7.0",
-  RJSONIO="1.3.1.4",
-  "tdhock/animint2@dbc4f15dbd6db9bc6b70c121fcd96d5f3a7adf98")
-
-## Here are a couple of data tables. The response is column 5,
-## "PRES". Columns 6-36 are the predictors. You can probably ignore
-## columns 1-4. In case you're curious, species 318 is Sugar Maple and
-## species 123 is Table Mountain Pine, species with different life
-## histories and distributions. Thanks for taking a look at these. As
-## I mentioned yesterday, I think there's a relatively quick paper to
-## get out of this and it would be great to work on it with you. Colin
-## Quinn, one of Scott's Ph.D. students will also be helping out.
-
-reg.dir <- "registry-expired"
-reg <- batchtools::loadRegistry(reg.dir)
-library(data.table)
-spp.csv.vec <- grep("some", normalizePath(Sys.glob("data/*")), invert=TRUE, value=TRUE)
-all.y.list <- list()
-all.X.list <- list()
-species.name.vec <- c(
-  "318"="Sugar Maple",
-  "123"="Table Mountain Pine")
-names(species.name.vec) <- paste0(
-  "spp_env_", names(species.name.vec), ".csv")
-for(spp.csv in spp.csv.vec){
-  spp <- fread(spp.csv)
-  species <- species.name.vec[[basename(spp.csv)]]
-  all.y.list[[species]] <- spp$PRES
-  all.X.list[[species]] <- as.matrix(spp[, 6:36])
-}
-X.sc <- scale(all.X.list[[1]])
-X.center <- attr(X.sc, "scaled:center")
-X.scale <- attr(X.sc, "scaled:scale")
-X.my <- t((t(all.X.list[[1]])-X.center)/X.scale)
-all.equal(as.numeric(X.sc), as.numeric(X.my))
-all.equal(all.X.list[[1]], all.X.list[[2]])
-
-## Registry directories come from running the machine learning algos
-## in parallel on monsoon using the batchtools package. There are two
-## registries below because registry-expired has most of the algos,
-## and registry-earth-prop-zeros has the earth model where we only
-## saved the predictions and selected variables (the other info is way
-## too big for some reason).
-registry <- function(reg.dir, subset.fun){
-  list(reg.dir=reg.dir, subset.fun=subset.fun)
-}
-reg.list <- list(
-  registry("registry-expired", function(dt){
-    dt[algorithm != "earth"]
-  }),
-  registry("registry-earth-prop-zeros", identity)
-)
-
-
-done.list <- list()
-algo.result.list <- list()
-for(reg.info in reg.list){
-  one.reg <- loadRegistry(reg.info$reg.dir)
-  one.jobs <- getJobTable(reg=one.reg)
-  some.jobs <- reg.info$subset.fun(one.jobs)[!is.na(done)]
-  next.indices <-
-    (length(algo.result.list)+1):(length(algo.result.list)+nrow(some.jobs))
-  algo.result.list[next.indices] <- lapply(some.jobs$job.id, loadResult)
-  done.list[[reg.info$reg.dir]] <- some.jobs
-}
-length(algo.result.list)
-done <- do.call(rbind, done.list)
-for(name in names(done$prob.pars[[1]])){
-  done[[name]] <- sapply(done$prob.pars, "[[", name)
-}
-n.folds <- max(done$test.fold)
-done[, species := species.name.vec[paste(basename(spp.csv))]]
-done[, table(algorithm)]
-done[, table(basename(spp.csv), species)]
-done[, list.index := 1:.N]
-xgboost1 <- done[algorithm=="xgboost" & weight.name=="one"]
-
-auc.dt.list <- list()
-roc.dt.list <- list()
-glmnet.dt.list <- list()
-earth.dt.list <- list()
-for(test.set.i in 1:nrow(xgboost1)){
-  test.set.info <- xgboost1[test.set.i]
-  print(test.set.info)
-  on.vec <- c("test.fold", "species")
-  test.set.meta <- test.set.info[, ..on.vec]
-  test.set.algos <- done[test.set.meta, on=on.vec]
-  is.train <- algo.result.list[[test.set.info$list.index]]$is.train
-  test.y.vec <- all.y.list[[species]][!is.train]
-  test.X.mat <- all.X.list[[species]][!is.train,]
-  for(algo.i in 1:nrow(test.set.algos)){
-    result.i <- test.set.algos$list.index[[algo.i]]
-    algo.result <- algo.result.list[[result.i]]
-    algo.name <- test.set.algos$algorithm[[algo.i]]
-    algo.meta <- data.table(
-      test.set.meta,
-      algorithm=algo.name,
-      weight.name=test.set.algos$weight.name[[algo.i]])
-    if(algo.name=="earth"){
-      earth.dt.list[[paste(test.set.i, algo.i)]] <-
-        with(algo.result, data.table(
-          algo.meta,
-          prop.zero,
-          feature=names(prop.zero)))
-    }
-    if(algo.name=="glmnet"){
-      weight.vec <- coef(algo.result$fit)[-1,]
-      glmnet.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
-        algo.meta,
-        feature=names(weight.vec),
-        weight=weight.vec,
-        norm.weight=weight.vec*X.scale)
-    }
-    pred.prob.vec <- if(algo.name%in%c("glmnet")){
-      predict(algo.result$fit, test.X.mat, type="response")
-    }else{
-      algo.result$pred.prob.vec
-    }
-    roc.df <- WeightedROC(pred.prob.vec, test.y.vec)
-    pred.class.vec <- ifelse(pred.prob.vec<0.5, 0, 1)
-    test.labels.negative <- sum(test.y.vec==0)
-    test.labels.positive <- sum(test.y.vec==1)
-    roc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
-      algo.meta, roc.df,
-      test.labels=length(test.y.vec),
-      test.labels.negative,
-      test.labels.positive)
-    auc.dt.list[[paste(test.set.i, algo.i)]] <- data.table(
-      algo.meta,
-      FPR=sum(pred.class.vec==1 & test.y.vec==0)/test.labels.negative,
-      TPR=sum(pred.class.vec==1 & test.y.vec==1)/test.labels.positive,
-      ## ADD EVAL METRIC HERE.
-      accuracy.percent=mean(pred.class.vec==test.y.vec)*100,
-      auc=WeightedAUC(roc.df))
-  }
-}
-auc.dt <- do.call(rbind, auc.dt.list)
-roc.dt <- do.call(rbind, roc.dt.list)
-glmnet.dt <- do.call(rbind, glmnet.dt.list)
-earth.dt <- do.call(rbind, earth.dt.list)
-saveRDS(list(
-  auc=auc.dt,
-  roc=roc.dt,
-  glmnet=glmnet.dt,
-  earth=earth.dt),
-  "figure-batchtools-expired-earth.rds")
-data.table::fwrite(auc.dt, "figure-batchtools-expired-earth-auc.csv")
-data.table::fwrite(roc.dt, "figure-batchtools-expired-earth-roc.csv")
-zero.counts <- glmnet.dt[, list(
-  zeros=sum(weight==0),
-  nonzeros=sum(weight!=0),
-  percent.zero=mean(weight==0)*100,
-  percent.nonzero=mean(weight!=0)*100,
-  mean.norm.weight=mean(norm.weight),
-  count=.N
-  ), by=list(species, weight.name, feature)]
+  "4.4.0",
+  nc="2023.8.24",
+  data.table="1.14.9",
+  "tdhock/animint2@32c5035934b3cc2490bfcd771a682e4f2c09fe65")
+data.list <- readRDS("figure-batchtools-expired-earth.rds")
+auc.dt <- data.list[["auc"]]
+roc.dt <- data.list[["roc"]]
 auc.tall <- melt(auc.dt, measure.vars=c("accuracy.percent", "auc"))
-
 ggplot()+
   theme_bw()+
   theme(panel.margin=grid::unit(0, "lines"))+
@@ -226,18 +70,14 @@ ggplot()+
     value, algorithm, color=weight.name),
     shape=1,
     data=auc.tall)
-
 (stats.dt <- auc.tall[, list(
   q25=quantile(value, 0.25),
   median=median(value),
   q75=quantile(value, 0.75),
   N=.N
 ), by=list(species, algorithm, weight.name, variable)])
-
-species.name <- "Sugar Maple"
-
+species.name.vec <- unique(auc.dt[["species"]])
 for(species.name in species.name.vec){
-
   species.stats <- stats.dt[
     variable=="auc" & weight.name=="one" & species==species.name]
   ord.stats <- species.stats[order(median)]
@@ -257,10 +97,9 @@ for(species.name in species.name.vec){
       shape=1,
       data=species.tall)+
     xlab("")
-
-  ##
-  options(width=100)
-  some.spec <- species.tall[weight.name=="balanced" & variable=="accuracy.percent"]
+  some.spec <- species.tall[
+    weight.name=="balanced" & variable=="accuracy.percent"
+  ]
   some.spec[, accuracy := value/100]
   some.spec.tall <- melt(
     some.spec,
@@ -280,7 +119,6 @@ for(species.name in species.name.vec){
   some.spec.tall[, Algorithm := factor(algorithm, algo.levs)]
   some.spec.mid[, Algorithm := factor(algorithm, algo.levs)]
   some.spec.mid[, pos := ifelse(mean<mid, "right", "left")]
-
   spaces <- "  "
   gg.default <- ggplot()+
     ggtitle("Prediction accuracy/error metrics at default threshold")+
@@ -303,11 +141,15 @@ for(species.name in species.name.vec){
     12, 2, units="in", res=100)
   print(gg.default)
   dev.off()
-
   species.roc <- roc.dt[species==species.name]
   approx.roc <- species.roc[, {
-    with(approx(FPR, TPR, seq(0, 1, l=201)), data.table(
-      FPR=x, TPR=y))
+    uniq.dt <- data.table(
+      FPR, TPR
+    )[
+    , .(min.TPR=min(TPR), max.TPR=max(TPR)), by=FPR
+    ]
+    uniq.dt[, with(approx(FPR, (min.TPR+max.TPR)/2, seq(0, 1, l=201)), data.table(
+      FPR=x, TPR=y))]
     }, by=list(test.fold, algorithm, weight.name)]
   ggplot()+
     theme_bw()+
@@ -323,7 +165,6 @@ for(species.name in species.name.vec){
       group=paste(algorithm, weight.name)),
       data=approx.roc)+
     coord_equal()
-
   one.fold.id <- 1
   round.factor <- 100
   one.roc.fold <- species.roc[weight.name=="balanced" & test.fold==one.fold.id]
@@ -346,19 +187,30 @@ for(species.name in species.name.vec){
       group=paste(algorithm, weight.name)),
       data=one.roc.approx)+
     coord_equal()
-
-
   round.factor <- 100
   get.some.roc <- function(dt)dt[weight.name=="balanced" & test.fold<10]
   some.roc.folds <- get.some.roc(species.roc)
   some.roc.folds[, round.FPR := round(FPR*round.factor)/round.factor]
-  some.roc.mid <- some.roc.folds[!round.FPR %in% c(0,1), .SD[1], by=.(algorithm, test.fold, round.FPR)]
+  some.roc.mid <- some.roc.folds[
+    !round.FPR %in% c(0,1),
+    .SD[1],
+    by=.(algorithm, test.fold, round.FPR)
+  ]
   some.roc.01 <- some.roc.folds[(FPR==0&TPR==0) | (FPR==1&TPR==1)]
-  some.roc.approx <- rbind(some.roc.mid, some.roc.01)[order(test.fold, algorithm, FPR)]
-  some.roc.approx[, .(count=.N), by=.(algorithm, round.FPR)][count!=max(count)]
-  some.roc.approx[, errors := FP+FN]
-  some.roc.approx[, error.prop := errors/test.labels]
-  some.roc.approx[, accuracy := 1-error.prop]
+  some.roc.approx <- rbind(some.roc.mid, some.roc.01)[
+    order(test.fold, algorithm, FPR)]
+  some.roc.approx[
+  , .(count=.N), by=.(algorithm, round.FPR)
+  ][
+    count!=max(count)
+  ]
+  some.roc.approx[
+  , errors := FP+FN
+  ][
+  , error.prop := errors/test.labels
+  ][
+  , accuracy := 1-error.prop
+  ]
   some.roc.dots <- get.some.roc(species.tall)
   ggplot()+
     theme_bw()+
@@ -373,45 +225,58 @@ for(species.name in species.name.vec){
       group=paste(algorithm, test.fold)),
       data=some.roc.approx)+
     coord_equal()
-
   some.roc.approx[, FP.possible := test.labels.negative]
   some.roc.approx[, FN.possible := test.labels.positive]
   some.roc.approx[, FP.count := FP]
   some.roc.approx[, FN.count := FN]
-
   some.roc.possible <- nc::capture_melt_multiple(
     some.roc.approx,
     metric="F[PN]",
     "[.]",
-    column=".*")[order(algorithm, test.fold, FPR.percent, metric)]
-  some.roc.possible[, max.possible := cumsum(possible), by=.(algorithm, test.fold, FPR.percent)]
-  some.roc.possible[, min.possible := max.possible-possible]
-  some.roc.possible[, label := ifelse(metric=="FP", "negative", "positive")]
-  some.roc.possible[, count := ifelse(metric=="FP", FP, FN)]#BUG in nc?
-
-  some.roc.approx[, FPR.percent := round.FPR*100]
+    column=".*"
+  )[
+    order(algorithm, test.fold, FPR.percent, metric)
+  ][
+  , max.possible := cumsum(possible), by=.(algorithm, test.fold, FPR.percent)
+  ][
+  , min.possible := max.possible-possible
+  ][
+  , label := ifelse(metric=="FP", "negative", "positive")
+  ][
+  , count := ifelse(metric=="FP", FP, FN)#BUG in nc?
+  ][
+  , FPR.percent := round.FPR*100
+  ]
+  inv.logistic <- function(p)-log(1/p - 1)
+  thresh.trans <- function(x)x
+  thresh.trans <- function(x)1/(1+exp(-x))
   some.roc.approx.tall <- melt(
     some.roc.approx,
     measure.vars=c("accuracy", "FPR", "TPR"),
     id.vars=c("algorithm", "test.fold", "FPR.percent", "threshold"),
-    variable.name="metric")[order(algorithm, test.fold, metric, threshold)]
-  inv.logistic <- function(p)-log(1/p - 1)
-  some.roc.approx.tall[, real.threshold := ifelse(
+    variable.name="metric"
+  )[
+    order(algorithm, test.fold, metric, threshold)
+  ][
+  , real.threshold := ifelse(
     algorithm=="major.class", threshold, ifelse(
-      threshold==Inf, Inf, inv.logistic(threshold)))]
-  thresh.trans <- function(x)x
-  thresh.trans <- function(x)1/(1+exp(-x))
-  some.roc.approx.tall[, min.thresh := thresh.trans(c(
-    -Inf, real.threshold[-.N])), by=.(algorithm, test.fold, metric)]
-  some.roc.approx.tall[, percent := value*100]
-  some.roc.approx.tall[, next.percent := c(
-    percent[-1], NA), by=.(algorithm, test.fold, metric)]
-  some.roc.approx.tall[, max.thresh := thresh.trans(real.threshold)]
-  some.roc.approx.tall[metric=="FPR", summary(FPR.percent-percent)]
+      threshold==Inf, Inf, inv.logistic(threshold)))
+  ][
+  , min.thresh := thresh.trans(c(
+    -Inf, real.threshold[-.N])), by=.(algorithm, test.fold, metric)
+  ][
+  , percent := value*100
+  ][
+  , next.percent := c(
+    percent[-1], NA), by=.(algorithm, test.fold, metric)
+  ][
+  , max.thresh := thresh.trans(real.threshold)
+  ][
+    metric=="FPR", summary(FPR.percent-percent)
+  ]
   hline.dt <- some.roc.approx.tall[, .(
     percent=range(percent)
   ), by=.(metric)]
-
   ggplot()+
     geom_hline(aes(
       yintercept=percent),
@@ -431,7 +296,6 @@ for(species.name in species.name.vec){
     theme_bw()+
     theme(panel.margin=grid::unit(0, "lines"))+
     facet_grid(metric ~ algorithm)
-
   some.roc.approx.stats <- some.roc.approx.tall[, .(
     mean=mean(percent),
     min=min(percent),
@@ -439,9 +303,13 @@ for(species.name in species.name.vec){
     sd=sd(percent),
     folds=.N
   ), by=.(metric, algorithm, FPR.percent)]
-  some.roc.approx.mid <- some.roc.approx.stats[, .(mid=(max(max)+min(min))/2), by=metric][some.roc.approx.stats, on="metric"]
-  some.roc.approx.mid[, pos := ifelse(mean<mid, "right", "left")]
-
+  some.roc.approx.mid <- some.roc.approx.stats[
+  , .(mid=(max(max)+min(min))/2), by=metric
+  ][
+    some.roc.approx.stats, on="metric"
+  ][
+  , pos := ifelse(mean<mid, "right", "left")
+  ]
   ggplot()+
       ggtitle("Class balance errors plot")+
       theme_bw()+
@@ -453,8 +321,6 @@ for(species.name in species.name.vec){
         xmax=test.fold+0.5, ymax=max.possible),
         color="black",
         data=some.roc.possible[FPR.percent==0])
-
-
   algo.colors <- c(
     xgboost="blue",
     glmnet="red",
@@ -615,9 +481,9 @@ for(species.name in species.name.vec){
     viz$selectize[[selector.name]] <- TRUE
   }
   animint2dir(viz, paste0("viz-roc-", species.dash))
-  ##animint2gist(viz)
-
-
+  if(FALSE){
+    animint2pages(viz, paste0("2020-02-13-roc-vs-error-", species.dash))
+  }
   species.earth <- earth.dt[species==species.name]
   rank.earth <- species.earth[, list(
     folds.zero=sum(prop.zero==1),
@@ -636,7 +502,6 @@ for(species.name in species.name.vec){
       1-prop.zero, Feature),
       shape=21,
       data=join.earth)
-
   glmnet.species <- glmnet.dt[species==species.name]
   zero.species <- zero.counts[species==species.name]
   ggplot()+
@@ -652,7 +517,6 @@ for(species.name in species.name.vec){
       shape=21,
       fill=NA,
       data=glmnet.species[weight!=0])
-
   feature.ranks <- zero.species[
     weight.name=="balanced"][order(abs(mean.norm.weight))]
   glmnet.species[, Feature := factor(feature, feature.ranks$feature)]
@@ -669,7 +533,6 @@ for(species.name in species.name.vec){
       shape=21,
       fill=NA,
       data=feature.ranks.folds)
-
   feature.ranks.tall <- melt(
     feature.ranks.folds, measure.vars=c("norm.weight", "weight"))
   ggplot()+
@@ -681,7 +544,6 @@ for(species.name in species.name.vec){
       shape=21,
       fill=NA,
       data=feature.ranks.tall)
-
   glmnet.species[, value := ifelse(weight==0, "zero", "non-zero")]
   ggplot()+
     theme_bw()+
@@ -692,7 +554,6 @@ for(species.name in species.name.vec){
       norm.weight, feature, fill=value),
       shape=21,
       data=glmnet.species)
-
   weight.colors <- c(
     balanced="black",
     one="grey")
@@ -827,7 +688,8 @@ for(species.name in species.name.vec){
         color=weight.colors[[wname]],
         data=feature.ranks.folds)
   }
-  ##animint2gist(viz)
   animint2dir(viz, paste0("viz-", species.dash))
-
+  if(FALSE){
+    animint2pages(viz, paste0("2020-02-13-variable-importance-", species.dash))
+  }
 }
